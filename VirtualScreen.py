@@ -11,12 +11,12 @@ from PyQt4.QtCore import *
 
 
 class MainWindow(QDialog):
-    received_msg = pyqtSignal()
+    received_msg = pyqtSignal(str)
 
-    def __init__(self, serial_port):
+    def __init__(self, ser):
         QDialog.__init__(self)
         self.x = self.y = None
-        self.serial_port = serial_port
+        self.serial_port = ser
 
         layout = QVBoxLayout()
 
@@ -42,7 +42,15 @@ class MainWindow(QDialog):
 
         self.screen.setPixmap(QPixmap.fromImage(self.screen_img))
 
-    def esc_pressed(self, event):
+        self.received_msg.connect(self.print_msg)
+        self.readFromDevice = ReadSerialThread(self.received_msg, self.serial_port)
+        self.readFromDevice.start()
+
+    def closeEvent(self, event):
+        self.readFromDevice.__del__()
+        event.accept()
+
+    def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
             self.close()
 
@@ -61,18 +69,28 @@ class MainWindow(QDialog):
         print(msg, end='')
         self.serial_port.write(msg.encode())
 
-    def read_from_device(self):
-        self.received_msg.connect(self.print_msg)
-        msg = b''
-        while 1:
-            if self.serial_port.inWaiting():
-                msg = self.serial_port.readline().decode()
-                self.received_msg.emit()
-                if msg == 'exit\r\n':
-                    break
+    def print_msg(self, msg):
+        print(msg, end='')
 
-    def print_msg(self):
-        print('fuck yeah')
+
+class ReadSerialThread(QThread):
+
+    def __init__(self, msg_sygnal, ser):
+        QThread.__init__(self)
+        self.received_msg = msg_sygnal
+        self.serial_port = ser
+        self.work = True
+
+    def __del__(self):
+        self.work = False
+        self.wait()
+
+    def run(self):
+        msg = b''
+        while self.work:
+            if self.serial_port.isOpen() and self.serial_port.inWaiting() != 0:
+                msg = self.serial_port.readline().decode()
+                self.received_msg.emit(msg)
 
 
 def main():
@@ -80,7 +98,6 @@ def main():
         app = QApplication(sys.argv)
         win = MainWindow(ser)
         win.show()
-        win.read_from_device()
         app.exec()
 
 
